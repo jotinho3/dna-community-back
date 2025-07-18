@@ -37,7 +37,7 @@ app.use(express.json({ limit: '50mb' }));  // Aumenta o limite para JSON
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const corsOptions = {
-  origin: ['http://localhost:3000', 'localhost:3000'], // Permite apenas o front-end na porta 3001
+  origin: ['http://localhost:3000', 'localhost:3000', 'https://dna-community.vercel.app'], // Permite apenas o front-end na porta 3001
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], // Métodos permitidos
   allowedHeaders: ['Content-Type', 'Authorization', 'uid', 'Accept', 'x-requested-with', 'Origin', 'orcamentouid'], // Cabeçalhos permitidos
 };
