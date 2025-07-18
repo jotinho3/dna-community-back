@@ -36,6 +36,11 @@ npm install
 
 ### 4. **Run the Application**
 ```bash
+npm run start
+```
+or
+
+```bash
 npm run dev
 ```
 or
