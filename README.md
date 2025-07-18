@@ -11,7 +11,6 @@ It manages users, workshops, forums, notifications, and much more for your commu
 ### 1. **Clone the Repository**
 ```bash
 git clone https://github.com/jotinho3/dna-community-back.git
-cd dna-community-back/firebase-backend-app
 ```
 
 ### 2. **Install Dependencies**
