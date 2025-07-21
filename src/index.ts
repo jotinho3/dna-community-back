@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import { initializeApp } from 'firebase-admin/app';
@@ -5,6 +8,8 @@ import cors from 'cors';
 import { admin } from './utils/firebase'; // Adjust the import path as necessary
 import { getFirestore } from 'firebase-admin/firestore';
 import authRoutes from './routes/authRoutes';
+import userRoutes from './routes/userRoutes';
+
 // import { userRoutes } from './routes/userRoutes';
 // import { profileRoutes } from './routes/profileRoutes';
 // import { companyRoutes } from './routes/companyRoutes';
@@ -47,7 +52,7 @@ app.use(cors(corsOptions));
 
 // Routes
 app.use('/api/auth', authRoutes);
-// app.use('/api/users', userRoutes);
+app.use('/api/users', userRoutes);
 // app.use('/api/profiles', profileRoutes);
 // app.use('/api/companies', companyRoutes);
 // app.use('/api/plans', planRoutes);
