@@ -27,6 +27,14 @@ interface UserProfile {
   };
   createdAt?: Date;
   updatedAt?: Date;
+
+  // Workshop creator specific fields
+  workshopCreatorProfile?: {
+    expertise: string[];
+    bio: string;
+    certifications: string[];
+    yearsOfExperience: number;
+  };
 }
 
 export class UserController {
