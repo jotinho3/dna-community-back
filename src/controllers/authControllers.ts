@@ -9,6 +9,33 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be defined in environment variables');
 }
 
+// Helper function to format user data for response
+const formatUserResponse = (uid: string, userData: any) => {
+  return {
+    uid,
+    name: userData.name,
+    email: userData.email,
+    engagement_xp: userData.engagement_xp || 0,
+    hasCompletedOnboarding: userData.hasCompletedOnboarding || false,
+    onboardingCompletedAt: userData.onboardingCompletedAt || null,
+    created_at: userData.created_at,
+    profile: {
+      role: userData.profile?.role || null,
+      experience: userData.profile?.experience || null,
+      bio: userData.profile?.bio || "",
+      location: userData.profile?.location || "",
+      website: userData.profile?.website || "",
+      languages: userData.profile?.languages || [],
+      tools: userData.profile?.tools || [],
+      skills: userData.profile?.skills || [],
+      interests: userData.profile?.interests || [],
+      socialLinks: userData.profile?.socialLinks || {},
+      createdAt: userData.profile?.createdAt || null,
+      updatedAt: userData.profile?.updatedAt || null,
+    }
+  };
+};
+
 export const register = async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
   try {
@@ -24,22 +51,35 @@ export const register = async (req: Request, res: Response) => {
     // Criptografa a senha
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Cria o usuário no Firestore
-    const userRef = await db.collection("users").add({
+    const now = new Date();
+
+    // Cria o usuário no Firestore com estrutura completa
+    const newUser = {
       name,
       email,
       password: hashedPassword,
-      created_at: new Date(),
+      created_at: now,
       hasCompletedOnboarding: false,
+      onboardingCompletedAt: null,
+      engagement_xp: 0,
       profile: {
         role: null,
         experience: null,
+        bio: "",
+        location: "",
+        website: "",
         languages: [],
         tools: [],
+        skills: [],
         interests: [],
-      },
-      engagement_xp: 0,
-    });
+        socialLinks: {},
+        createdAt: now,
+        updatedAt: now,
+      }
+    };
+
+    const userRef = await db.collection("users").add(newUser);
+
     // Gera o token JWT
     const expiresInSeconds = 7 * 24 * 60 * 60; // 7 dias em segundos
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
@@ -47,15 +87,13 @@ export const register = async (req: Request, res: Response) => {
       expiresIn: expiresInSeconds,
     });
 
+    // Format complete user response
+    const userResponse = formatUserResponse(userRef.id, newUser);
+
     res.status(201).json({
       message: "Usuário registrado com sucesso",
       token,
-      user: {
-        uid: userRef.id,
-        name,
-        email,
-        created_at: new Date(),
-      },
+      user: userResponse,
       expiresIn: expiresAt,
     });
   } catch (error) {
@@ -96,15 +134,13 @@ export const login = async (req: Request, res: Response) => {
       { expiresIn: expiresInSeconds }
     );
 
+    // Format complete user response
+    const userResponse = formatUserResponse(userDoc.id, userData);
+
     res.status(200).json({
       message: "Login realizado com sucesso",
       token,
-      user: {
-        uid: userDoc.id,
-        name: userData.name,
-        email: userData.email,
-        created_at: userData.created_at,
-      },
+      user: userResponse,
       expiresIn: expiresAt,
     });
   } catch (error) {
@@ -112,5 +148,32 @@ export const login = async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ message: "Erro ao realizar login", error: errorMessage });
+  }
+};
+
+// Additional auth endpoint to get current user (useful for token validation)
+export const getCurrentUser = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.params;
+
+    const userDoc = await db.collection("users").doc(uid).get();
+    
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: "Usuário não encontrado" });
+    }
+
+    const userData = userDoc.data();
+    const userResponse = formatUserResponse(uid, userData);
+
+    res.status(200).json({
+      user: userResponse
+    });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ 
+      message: "Erro ao buscar usuário", 
+      error: errorMessage 
+    });
   }
 };
