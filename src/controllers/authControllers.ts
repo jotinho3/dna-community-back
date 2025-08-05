@@ -62,6 +62,7 @@ export const register = async (req: Request, res: Response) => {
       hasCompletedOnboarding: false,
       onboardingCompletedAt: null,
       engagement_xp: 0,
+      totalAnswers: 0,
       profile: {
         role: null,
         experience: null,

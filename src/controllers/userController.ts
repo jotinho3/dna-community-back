@@ -259,10 +259,11 @@ static async getAll(req: Request, res: Response) {
     const limitNum = parseInt(limit as string);
 
     console.log("📄 Page:", pageNum, "🔢 Limit:", limitNum);
+    console.log("🆔 Current User ID received:", currentUserId, "Type:", typeof currentUserId);
 
     let query: FirebaseFirestore.Query = db
       .collection("users")
-      .where("hasCompletedOnboarding", "==", true)
+      .where("hasCompletedOnboarding", "==", true);
 
     console.log("🔧 Base query created");
 
@@ -282,6 +283,52 @@ static async getAll(req: Request, res: Response) {
 
     console.log(`📦 Retrieved ${snapshot.size} user(s) from Firestore`);
 
+    // 🔧 Get all follow relationships for current user first (if provided)
+    let userFollowingSet = new Set<string>();
+    if (currentUserId) {
+      console.log("👤 Getting follow relationships for currentUserId:", currentUserId);
+      console.log("🔍 Query details:", {
+        collection: "followers",
+        whereField: "followerId",
+        operator: "==",
+        value: String(currentUserId),
+        valueType: typeof String(currentUserId)
+      });
+      
+      const followingSnapshot = await db
+        .collection("followers")
+        .where("followerId", "==", String(currentUserId)) // 🔧 Ensure string comparison
+        .get();
+      
+      console.log("📊 Follow query results:", {
+        totalDocs: followingSnapshot.docs.length,
+        isEmpty: followingSnapshot.empty
+      });
+
+      // 🔧 Let's also check if there are ANY documents in the followers collection
+      const allFollowersSnapshot = await db.collection("followers").limit(5).get();
+      console.log("🔍 Sample followers in collection:", {
+        totalSampleDocs: allFollowersSnapshot.docs.length,
+        sampleData: allFollowersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          data: doc.data()
+        }))
+      });
+
+      followingSnapshot.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`🔗 Follow relationship ${index + 1}:`, {
+          followerId: data.followerId,
+          followingId: data.followingId,
+          createdAt: data.createdAt
+        });
+        userFollowingSet.add(data.followingId);
+      });
+      
+      console.log("🔗 Current user is following:", Array.from(userFollowingSet));
+      console.log("📈 Total following count:", userFollowingSet.size);
+    }
+
     const users = await Promise.all(
       snapshot.docs.map(async (doc) => {
         const userData = doc.data();
@@ -289,15 +336,27 @@ static async getAll(req: Request, res: Response) {
         const followersCount = await UserController.getFollowersCount(doc.id);
         const followingCount = await UserController.getFollowingCount(doc.id);
 
-        let isFollowing = false;
-        if (currentUserId && currentUserId !== doc.id) {
-          const followDoc = await db
-            .collection("followers")
-            .where("followerId", "==", currentUserId)
-            .where("followingId", "==", doc.id)
-            .get();
-          isFollowing = !followDoc.empty;
+        // 🔧 Check if current user is following this user using the Set
+        const isFollowing = currentUserId && currentUserId !== doc.id 
+          ? userFollowingSet.has(doc.id)
+          : false;
+
+        // 🔧 Enhanced debugging for specific user
+        if (doc.id === "4ekKQHY39d4Zj5KPSu4I") {
+          console.log("🎯 DEBUG for target user 4ekKQHY39d4Zj5KPSu4I:", {
+            userId: doc.id,
+            currentUserId: currentUserId,
+            currentUserIdType: typeof currentUserId,
+            userFollowingSetContains: userFollowingSet.has(doc.id),
+            userFollowingSetSize: userFollowingSet.size,
+            userFollowingSetArray: Array.from(userFollowingSet),
+            conditionCheck1: currentUserId && currentUserId !== doc.id,
+            conditionCheck2: userFollowingSet.has(doc.id),
+            finalIsFollowing: isFollowing
+          });
         }
+
+        console.log(`👥 User ${doc.id}: isFollowing = ${isFollowing}`);
 
         const profileUser = {
           uid: doc.id,
@@ -335,12 +394,19 @@ static async getAll(req: Request, res: Response) {
       console.log(`🔎 ${filteredUsers.length} user(s) matched skill filters`);
     }
 
+    console.log("📤 Final response summary:", {
+      totalUsers: filteredUsers.length,
+      followingRelationships: Array.from(userFollowingSet).length,
+      usersWithIsFollowingTrue: filteredUsers.filter(u => u.isFollowing).length,
+      targetUserInResults: filteredUsers.find(u => u.uid === "4ekKQHY39d4Zj5KPSu4I")?.isFollowing
+    });
+
     res.status(200).json({
       users: filteredUsers,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: filteredUsers.length, // se quiser total global, use um count separado
+        total: filteredUsers.length,
       },
     });
   } catch (error) {

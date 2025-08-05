@@ -14,7 +14,7 @@ router.post('/:uid', WorkshopController.createWorkshop);
 router.get('/workshop/:workshopId', WorkshopController.getWorkshop);
 
 // Get available workshops (GET /api/workshops/available)
-router.get('/available', WorkshopController.getAvailableWorkshops);
+router.get('/:uid/available', WorkshopController.getAvailableWorkshops);
 
 // Get workshops created by user (GET /api/workshops/:uid/created)
 router.get('/:uid/created', WorkshopController.getUserCreatedWorkshops);
