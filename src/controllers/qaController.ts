@@ -29,7 +29,7 @@ export class QAController {
 
       const questionData: Omit<Question, "id"> = {
         authorId: uid,
-        authorName: authorData?.name || "Usuário",
+        authorName: authorData?.name,
         authorAvatar: authorData?.photoURL,
         title,
         content,
@@ -226,11 +226,12 @@ export class QAController {
   }
 
   // Criar resposta
+  // Update your createAnswer method (around line 212)
   static async createAnswer(req: Request, res: Response) {
     try {
       const { uid } = req.params;
       const { questionId, content, mentions }: CreateAnswerRequest = req.body;
-
+  
       // Verificar se a pergunta existe
       const questionDoc = await db
         .collection("questions")
@@ -239,16 +240,16 @@ export class QAController {
       if (!questionDoc.exists) {
         return res.status(404).json({ error: "Pergunta não encontrada" });
       }
-
+  
       // Buscar dados do autor
       const authorDoc = await db.collection("users").doc(uid).get();
       if (!authorDoc.exists) {
         return res.status(404).json({ error: "Usuário não encontrado" });
       }
-
+  
       const authorData = authorDoc.data();
       const answerId = db.collection("answers").doc().id;
-
+  
       const answerData: Omit<Answer, "id"> = {
         questionId,
         authorId: uid,
@@ -261,10 +262,10 @@ export class QAController {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-
+  
       // Salvar resposta
       await db.collection("answers").doc(answerId).set(answerData);
-
+  
       // Atualizar contador de respostas da pergunta
       await db
         .collection("questions")
@@ -273,15 +274,16 @@ export class QAController {
           answersCount: (questionDoc.data()?.answersCount || 0) + 1,
           updatedAt: new Date(),
         });
-
-      // Adicionar XP ao autor da resposta (+10)
+  
+      // 🆕 Atualizar totalAnswers do usuário (+1) junto com XP
       await db
         .collection("users")
         .doc(uid)
         .update({
           engagement_xp: (authorData?.engagement_xp || 0) + 10,
+          totalAnswers: (authorData?.totalAnswers || 0) + 1, 
         });
-
+  
       // Notificar autor da pergunta
       const questionData = questionDoc.data();
       if (questionData?.authorId !== uid) {
@@ -292,7 +294,7 @@ export class QAController {
           uid
         );
       }
-
+  
       // Criar notificações para menções
       if (mentions && mentions.length > 0) {
         await QAController.createMentionNotifications(
@@ -302,7 +304,7 @@ export class QAController {
           uid
         );
       }
-
+  
       res.status(201).json({
         id: answerId,
         ...answerData,

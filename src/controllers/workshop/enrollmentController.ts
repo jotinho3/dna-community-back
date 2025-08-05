@@ -1,98 +1,230 @@
 import { Request, Response } from 'express';
 import { db } from '../../utils/firebase';
 import { admin } from '../../utils/firebase';
-import { WorkshopEnrollment } from '../../types/workshops';
+import { Workshop, WorkshopEnrollment } from '../../types/workshops';
 import { WorkshopNotificationService } from '../../services/wsNotificationService';
 import { CertificateService } from '../../services/certificateService';
 
 export class EnrollmentController {
 
-  // Enroll in workshop
-  static async enrollWorkshop(req: Request, res: Response) {
-    try {
-      const { workshopId, uid } = req.params;
+// Enroll in workshop
+static async enrollWorkshop(req: Request, res: Response) {
+  try {
+    const { workshopId, uid } = req.params;
 
-      // Check if workshop exists and is available
-      const workshopDoc = await db.collection('workshops').doc(workshopId).get();
-      if (!workshopDoc.exists) {
-        return res.status(404).json({ error: 'Workshop não encontrado' });
+    // Check if workshop exists and is available
+    const workshopDoc = await db.collection('workshops').doc(workshopId).get();
+    if (!workshopDoc.exists) {
+      return res.status(404).json({ error: 'Workshop não encontrado' });
+    }
+
+    const workshopData = workshopDoc.data();
+    
+    // 🔧 Fix: Properly handle Firestore Timestamp conversion
+    let workshopDate: Date;
+    if (workshopData?.scheduledDate?.toDate) {
+      // It's a Firestore Timestamp
+      workshopDate = workshopData.scheduledDate.toDate();
+    } else if (workshopData?.scheduledDate instanceof Date) {
+      // It's already a Date
+      workshopDate = workshopData.scheduledDate;
+    } else {
+      // It's a string, convert to Date
+      workshopDate = new Date(workshopData?.scheduledDate);
+    }
+
+    // Validate the date is valid
+    if (isNaN(workshopDate.getTime())) {
+      return res.status(400).json({ 
+        error: 'Data do workshop inválida' 
+      });
+    }
+
+    // const oneDayBefore = new Date(workshopDate.getTime() - 24 * 60 * 60 * 1000);
+
+    // // Check if enrollment is still open (at least 1 day before)
+    // if (new Date() >= oneDayBefore) {
+    //   return res.status(400).json({ 
+    //     error: 'Inscrições encerradas. É necessário se inscrever com pelo menos 1 dia de antecedência' 
+    //   });
+    // }
+
+    // Check if workshop is published
+    if (workshopData?.status !== 'published') {
+      return res.status(400).json({ 
+        error: 'Workshop não está disponível para inscrição' 
+      });
+    }
+
+    // 🆕 Check existing enrollment status
+    const existingEnrollmentSnapshot = await db.collection('workshop_enrollments')
+      .where('workshopId', '==', workshopId)
+      .where('userId', '==', uid)
+      .orderBy('enrolledAt', 'desc')
+      .limit(1)
+      .get();
+
+    let existingEnrollmentDoc = null;
+    let existingEnrollmentData = null;
+
+    if (!existingEnrollmentSnapshot.empty) {
+      existingEnrollmentDoc = existingEnrollmentSnapshot.docs[0];
+      existingEnrollmentData = existingEnrollmentDoc.data();
+
+      // Check current enrollment status
+      switch (existingEnrollmentData.status) {
+        case 'enrolled':
+          return res.status(400).json({ 
+            error: 'Você já está inscrito neste workshop' 
+          });
+        
+        case 'waitlisted':
+          return res.status(400).json({ 
+            error: 'Você já está na lista de espera deste workshop' 
+          });
+        
+        case 'completed':
+          return res.status(400).json({ 
+            error: 'Você já concluiu este workshop' 
+          });
+        
+        case 'attended':
+          return res.status(400).json({ 
+            error: 'Você já participou deste workshop' 
+          });
+        
+        case 'no_show':
+        case 'cancelled':
+          console.log(`User ${uid} re-enrolling in workshop ${workshopId} after ${existingEnrollmentData.status}`);
+          break;
+        
+        default:
+          console.log(`Unknown enrollment status: ${existingEnrollmentData.status}, allowing enrollment`);
+          break;
       }
+    }
 
-      const workshopData = workshopDoc.data();
-      const workshopDate = new Date(workshopData?.scheduledDate);
-      const oneDayBefore = new Date(workshopDate.getTime() - 24 * 60 * 60 * 1000);
+    // Get user data
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    const userData = userDoc.data();
 
-      // Check if enrollment is still open (at least 1 day before)
-      if (new Date() >= oneDayBefore) {
-        return res.status(400).json({ 
-          error: 'Inscrições encerradas. É necessário se inscrever com pelo menos 1 dia de antecedência' 
-        });
-      }
+    // 🔧 Create complete workshop object with proper date handling
+    const workshop: Workshop = {
+      id: workshopId,
+      title: workshopData.title || '',
+      description: workshopData.description || '',
+      category: workshopData.category || 'other',
+      difficulty: workshopData.difficulty || 'beginner',
+      duration: workshopData.duration || 0,
+      maxParticipants: workshopData.maxParticipants || 0,
+      prerequisites: workshopData.prerequisites || [],
+      learningObjectives: workshopData.learningObjectives || [],
+      tags: workshopData.tags || [],
+      
+      // Creator info
+      creatorId: workshopData.creatorId || '',
+      creatorName: workshopData.creatorName || '',
+      
+      // 🔧 Use the properly converted date
+      scheduledDate: workshopDate,
+      startTime: workshopData.startTime || '',
+      endTime: workshopData.endTime || '',
+      timezone: workshopData.timezone || 'America/Sao_Paulo',
+      
+      // Meeting info
+      meetingType: workshopData.meetingType || 'teams',
+      meetingLink: workshopData.meetingLink,
+      meetingId: workshopData.meetingId,
+      
+      // Status and metrics
+      status: workshopData.status || 'draft',
+      enrolledCount: workshopData.enrolledCount || 0,
+      completedCount: workshopData.completedCount || 0,
+      
+      // 🔧 Properly handle timestamps with validation
+      createdAt: workshopData.createdAt?.toDate ? workshopData.createdAt.toDate() : 
+                 (workshopData.createdAt instanceof Date ? workshopData.createdAt : new Date()),
+      updatedAt: workshopData.updatedAt?.toDate ? workshopData.updatedAt.toDate() : 
+                 (workshopData.updatedAt instanceof Date ? workshopData.updatedAt : new Date()),
+      
+      // Settings
+      autoGenerateCertificate: workshopData.autoGenerateCertificate || false,
+      sendReminders: workshopData.sendReminders || false,
+      allowWaitlist: workshopData.allowWaitlist || false
+    };
 
-      // Check if workshop is published
-      if (workshopData?.status !== 'published') {
-        return res.status(400).json({ 
-          error: 'Workshop não está disponível para inscrição' 
-        });
-      }
+    // Check capacity
+    if (workshopData.enrolledCount >= workshopData.maxParticipants) {
+      if (workshopData.allowWaitlist) {
+        // Handle re-enrollment for waitlist
+        const enrollmentData: Omit<WorkshopEnrollment, 'id'> = {
+          workshopId,
+          userId: uid,
+          userName: userData?.name || 'Usuário',
+          userEmail: userData?.email || '',
+          enrolledAt: new Date(),
+          status: 'waitlisted'
+        };
 
-      // Check if already enrolled
-      const existingEnrollment = await db.collection('workshop_enrollments')
-        .where('workshopId', '==', workshopId)
-        .where('userId', '==', uid)
-        .get();
-
-      if (!existingEnrollment.empty) {
-        return res.status(400).json({ error: 'Você já está inscrito neste workshop' });
-      }
-
-      // Get user data
-      const userDoc = await db.collection('users').doc(uid).get();
-      if (!userDoc.exists) {
-        return res.status(404).json({ error: 'Usuário não encontrado' });
-      }
-      const userData = userDoc.data();
-
-      // Check capacity
-      if (workshopData.enrolledCount >= workshopData.maxParticipants) {
-        if (workshopData.allowWaitlist) {
-          // Add to waitlist
-          const enrollment: Omit<WorkshopEnrollment, 'id'> = {
-            workshopId,
-            userId: uid,
-            userName: userData?.name || 'Usuário',
-            userEmail: userData?.email || '',
-            enrolledAt: new Date(),
-            status: 'waitlisted'
-          };
-
-          const enrollmentRef = await db.collection('workshop_enrollments').add(enrollment);
+        if (existingEnrollmentDoc && existingEnrollmentData?.status === 'cancelled') {
+          // Update existing cancelled enrollment
+          await existingEnrollmentDoc.ref.update({
+            ...enrollmentData,
+            previousStatus: existingEnrollmentData.status,
+            reEnrolledAt: new Date(),
+            cancelledAt: admin.firestore.FieldValue.delete()
+          });
 
           return res.status(201).json({
             message: 'Adicionado à lista de espera!',
-            enrollment: { id: enrollmentRef.id, ...enrollment },
+            workshop: workshop,
+            enrollment: { 
+              id: existingEnrollmentDoc.id, 
+              ...enrollmentData,
+              previousStatus: existingEnrollmentData.status,
+              isReEnrollment: true
+            },
             status: 'waitlisted'
           });
         } else {
-          return res.status(400).json({ error: 'Workshop lotado' });
+          // Create new enrollment
+          const enrollmentRef = await db.collection('workshop_enrollments').add(enrollmentData);
+
+          return res.status(201).json({
+            message: 'Adicionado à lista de espera!',
+            workshop: workshop,
+            enrollment: { id: enrollmentRef.id, ...enrollmentData },
+            status: 'waitlisted'
+          });
         }
+      } else {
+        return res.status(400).json({ error: 'Workshop lotado' });
       }
+    }
 
-      // Create enrollment
-      const enrollment: Omit<WorkshopEnrollment, 'id'> = {
-        workshopId,
-        userId: uid,
-        userName: userData?.name || 'Usuário',
-        userEmail: userData?.email || '',
-        enrolledAt: new Date(),
-        status: 'enrolled'
-      };
+    // Create enrollment (handle re-enrollment)
+    const enrollmentData: Omit<WorkshopEnrollment, 'id'> = {
+      workshopId,
+      userId: uid,
+      userName: userData?.name || 'Usuário',
+      userEmail: userData?.email || '',
+      enrolledAt: new Date(),
+      status: 'enrolled'
+    };
 
-      const batch = db.batch();
+    const batch = db.batch();
 
-      // Add enrollment
-      const enrollmentRef = db.collection('workshop_enrollments').doc();
-      batch.set(enrollmentRef, enrollment);
+    if (existingEnrollmentDoc && existingEnrollmentData?.status === 'cancelled') {
+      // Update existing cancelled enrollment instead of creating new one
+      batch.update(existingEnrollmentDoc.ref, {
+        ...enrollmentData,
+        previousStatus: existingEnrollmentData.status,
+        reEnrolledAt: new Date(),
+        cancelledAt: admin.firestore.FieldValue.delete()
+      });
 
       // Update workshop enrolled count
       const workshopRef = db.collection('workshops').doc(workshopId);
@@ -103,30 +235,85 @@ export class EnrollmentController {
       // Add enrollment XP
       const userRef = db.collection('users').doc(uid);
       batch.update(userRef, {
-        engagement_xp: admin.firestore.FieldValue.increment(10) // +10 XP for enrolling
+        engagement_xp: admin.firestore.FieldValue.increment(10)
       });
 
       await batch.commit();
 
-      // Send enrollment confirmation
-      await WorkshopNotificationService.sendEnrollmentConfirmation(
-        uid,
-        { ...(workshopData as any), id: workshopId },
-        { id: enrollmentRef.id, ...enrollment }
-      );
+      // Update workshop object with new enrolled count for response
+      workshop.enrolledCount = (workshopData.enrolledCount || 0) + 1;
+
+      // 🔧 Send enrollment confirmation with try-catch for better error handling
+      try {
+        await WorkshopNotificationService.sendEnrollmentConfirmation(
+          uid,
+          workshop,
+          { id: existingEnrollmentDoc.id, ...enrollmentData }
+        );
+      } catch (notificationError) {
+        console.error('Erro ao enviar confirmação de inscrição:', notificationError);
+        // Don't fail the enrollment if notification fails
+      }
 
       res.status(201).json({
         message: 'Inscrição realizada com sucesso!',
-        enrollment: { id: enrollmentRef.id, ...enrollment },
+        workshop: workshop,
+        enrollment: { 
+          id: existingEnrollmentDoc.id, 
+          ...enrollmentData,
+          previousStatus: existingEnrollmentData.status,
+          isReEnrollment: true
+        },
         xpAwarded: 10
       });
 
-    } catch (error) {
-      console.error('Erro ao inscrever no workshop:', error);
-      res.status(500).json({ error: 'Erro interno do servidor' });
-    }
-  }
+    } else {
+      // Create new enrollment document
+      const enrollmentRef = db.collection('workshop_enrollments').doc();
+      batch.set(enrollmentRef, enrollmentData);
 
+      // Update workshop enrolled count
+      const workshopRef = db.collection('workshops').doc(workshopId);
+      batch.update(workshopRef, {
+        enrolledCount: admin.firestore.FieldValue.increment(1)
+      });
+
+      // Add enrollment XP
+      const userRef = db.collection('users').doc(uid);
+      batch.update(userRef, {
+        engagement_xp: admin.firestore.FieldValue.increment(10)
+      });
+
+      await batch.commit();
+
+      // Update workshop object with new enrolled count for response
+      workshop.enrolledCount = (workshopData.enrolledCount || 0) + 1;
+
+      // 🔧 Send enrollment confirmation with try-catch for better error handling
+      try {
+        await WorkshopNotificationService.sendEnrollmentConfirmation(
+          uid,
+          workshop,
+          { id: enrollmentRef.id, ...enrollmentData }
+        );
+      } catch (notificationError) {
+        console.error('Erro ao enviar confirmação de inscrição:', notificationError);
+        // Don't fail the enrollment if notification fails
+      }
+
+      res.status(201).json({
+        message: 'Inscrição realizada com sucesso!',
+        workshop: workshop,
+        enrollment: { id: enrollmentRef.id, ...enrollmentData },
+        xpAwarded: 10
+      });
+    }
+
+  } catch (error) {
+    console.error('Erro ao inscrever no workshop:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+}
   // Cancel enrollment
   static async cancelEnrollment(req: Request, res: Response) {
     try {

@@ -12,6 +12,7 @@ import userRoutes from './routes/userRoutes';
 import qaRoutes from './routes/qaRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import workshopRoutes from './routes/workshopRoutes';
+import rewardRoutes from './routes/rewardsRoutes';
 
 // import { userRoutes } from './routes/userRoutes';
 // import { profileRoutes } from './routes/profileRoutes';
@@ -59,6 +60,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/workshops', workshopRoutes);
+app.use('/api/rewards', rewardRoutes)
 // app.use('/api/profiles', profileRoutes);
 // app.use('/api/companies', companyRoutes);
 // app.use('/api/plans', planRoutes);

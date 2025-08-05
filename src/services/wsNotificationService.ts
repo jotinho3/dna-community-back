@@ -4,40 +4,76 @@ import { Workshop, WorkshopEnrollment } from '../types/workshops';
 export class WorkshopNotificationService {
   
   // Send enrollment confirmation
-  static async sendEnrollmentConfirmation(
+static async sendEnrollmentConfirmation(
     userId: string, 
     workshop: Workshop, 
     enrollment: WorkshopEnrollment
   ): Promise<void> {
     try {
-      await db.collection('notifications').add({
+      // 🔧 Use the helper method for date validation
+      const validScheduledDate = this.validateDate(workshop.scheduledDate);
+
+      console.log('📅 Date validation in notification service:', {
+        original: workshop.scheduledDate,
+        validated: validScheduledDate,
+        isValid: !isNaN(validScheduledDate.getTime())
+      });
+
+      // 🔧 Create notification data with validated dates
+      const notificationData = {
         userId,
         type: 'workshop_enrollment',
         fromUserId: 'system',
         fromUserName: 'Sistema DNA Community',
         targetId: workshop.id,
         targetType: 'workshop',
-        message: `Inscrição confirmada no workshop "${workshop.title}" - ${new Date(workshop.scheduledDate).toLocaleDateString('pt-BR')}`,
+        message: `Inscrição confirmada no workshop "${workshop.title}" - ${validScheduledDate.toLocaleDateString('pt-BR')}`,
         createdAt: new Date(),
         read: false,
         metadata: {
           workshopId: workshop.id,
           workshopTitle: workshop.title,
-          scheduledDate: workshop.scheduledDate,
-          meetingLink: workshop.meetingLink
+          scheduledDate: validScheduledDate, // 🔧 Use validated date
+          startTime: workshop.startTime || '',
+          endTime: workshop.endTime || '',
+          timezone: workshop.timezone || 'America/Sao_Paulo',
+          meetingLink: workshop.meetingLink || '',
+          enrollmentId: enrollment.id
         }
+      };
+
+      console.log('📤 Sending notification with data:', {
+        userId: notificationData.userId,
+        type: notificationData.type,
+        scheduledDate: notificationData.metadata.scheduledDate,
+        isValidDate: !isNaN(notificationData.metadata.scheduledDate.getTime())
       });
+
+      await db.collection('notifications').add(notificationData);
+      
+      console.log('✅ Enrollment confirmation notification sent successfully');
+
     } catch (error) {
-      console.error('Erro ao enviar confirmação de inscrição:', error);
+      console.error('❌ Erro ao enviar confirmação de inscrição:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        userId,
+        workshopId: workshop.id,
+        workshopTitle: workshop.title,
+        scheduledDate: workshop.scheduledDate
+      });
+      throw error; // Re-throw to be caught by the calling function
     }
   }
-
   // Send workshop reminder (1 day before)
   static async sendWorkshopReminder(
     userId: string, 
     workshop: Workshop
   ): Promise<void> {
     try {
+      // 🔧 Use validated date
+      const validScheduledDate = this.validateDate(workshop.scheduledDate);
+
       await db.collection('notifications').add({
         userId,
         type: 'workshop_reminder',
@@ -51,8 +87,8 @@ export class WorkshopNotificationService {
         metadata: {
           workshopId: workshop.id,
           workshopTitle: workshop.title,
-          scheduledDate: workshop.scheduledDate,
-          meetingLink: workshop.meetingLink,
+          scheduledDate: validScheduledDate, // 🔧 Use validated date
+          meetingLink: workshop.meetingLink || '',
           reminderType: 'day_before'
         }
       });
@@ -67,6 +103,9 @@ export class WorkshopNotificationService {
     workshop: Workshop
   ): Promise<void> {
     try {
+      // 🔧 Use validated date
+      const validScheduledDate = this.validateDate(workshop.scheduledDate);
+
       await db.collection('notifications').add({
         userId,
         type: 'workshop_starting',
@@ -80,7 +119,8 @@ export class WorkshopNotificationService {
         metadata: {
           workshopId: workshop.id,
           workshopTitle: workshop.title,
-          meetingLink: workshop.meetingLink,
+          scheduledDate: validScheduledDate, // 🔧 Use validated date
+          meetingLink: workshop.meetingLink || '',
           reminderType: 'hour_before'
         }
       });
@@ -89,14 +129,18 @@ export class WorkshopNotificationService {
     }
   }
 
+
   // Send completion notification with certificate
-  static async sendCompletionNotification(
+ static async sendCompletionNotification(
     userId: string, 
     workshop: Workshop, 
     xpAwarded: number,
     certificateId?: string
   ): Promise<void> {
     try {
+      // 🔧 Use validated date
+      const validScheduledDate = this.validateDate(workshop.scheduledDate);
+
       const message = certificateId 
         ? `Parabéns! Você concluiu o workshop "${workshop.title}" e ganhou ${xpAwarded} XP! Seu certificado está pronto.`
         : `Parabéns! Você concluiu o workshop "${workshop.title}" e ganhou ${xpAwarded} XP!`;
@@ -114,6 +158,7 @@ export class WorkshopNotificationService {
         metadata: {
           workshopId: workshop.id,
           workshopTitle: workshop.title,
+          scheduledDate: validScheduledDate, // 🔧 Use validated date
           xpAwarded,
           certificateId
         }
@@ -124,12 +169,15 @@ export class WorkshopNotificationService {
   }
 
   // Send workshop cancellation
-  static async sendWorkshopCancellation(
+ static async sendWorkshopCancellation(
     userIds: string[], 
     workshop: Workshop, 
     reason?: string
   ): Promise<void> {
     try {
+      // 🔧 Use validated date
+      const validScheduledDate = this.validateDate(workshop.scheduledDate);
+
       const batch = db.batch();
       
       userIds.forEach(userId => {
@@ -147,6 +195,7 @@ export class WorkshopNotificationService {
           metadata: {
             workshopId: workshop.id,
             workshopTitle: workshop.title,
+            scheduledDate: validScheduledDate, // 🔧 Use validated date
             reason
           }
         });
@@ -182,4 +231,20 @@ export class WorkshopNotificationService {
       console.error('Erro ao agendar lembretes:', error);
     }
   }
+
+  private static validateDate(date: any): Date {
+    if (date instanceof Date && !isNaN(date.getTime())) {
+      return date;
+    } else if (date && typeof date.toDate === 'function') {
+      const converted = date.toDate();
+      return !isNaN(converted.getTime()) ? converted : new Date();
+    } else if (typeof date === 'string') {
+      const parsed = new Date(date);
+      return !isNaN(parsed.getTime()) ? parsed : new Date();
+    } else {
+      console.warn('Invalid date format, using current date as fallback:', date);
+      return new Date();
+    }
+  }
+
 }
