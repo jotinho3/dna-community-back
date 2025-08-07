@@ -13,28 +13,7 @@ import qaRoutes from './routes/qaRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import workshopRoutes from './routes/workshopRoutes';
 import rewardRoutes from './routes/rewardsRoutes';
-
-// import { userRoutes } from './routes/userRoutes';
-// import { profileRoutes } from './routes/profileRoutes';
-// import { companyRoutes } from './routes/companyRoutes';
-// import { planRoutes } from './routes/planRoutes';
-// import { subcompanyRoutes } from './routes/subcompanyRoutes';
-// import { newsRoutes } from './routes/newsRoutes';
-// import { workshopRoutes } from './routes/workshopRoutes';
-// import { userWorkshopRoutes } from './routes/userWorkshopRoutes';
-// import { forumRoutes } from './routes/forumRoutes';
-// import { postRoutes } from './routes/postRoutes';
-// import { responseRoutes } from './routes/responseRoutes';
-// import { reactionRoutes } from './routes/reactionRoutes';
-// import { followRoutes } from './routes/followRoutes';
-// import { notificationRoutes } from './routes/notificationRoutes';
-// import { dailyQuestRoutes } from './routes/dailyQuestRoutes';
-// import { userDailyQuestRoutes } from './routes/userDailyQuestRoutes';
-// import { engagementXpActionRoutes } from './routes/engagementXpActionRoutes';
-// import { workshopPathRoutes } from './routes/workshopPathRoutes';
-// import { workshopPathStepRoutes } from './routes/workshopPathStepRoutes';
-// import { certificationRoutes } from './routes/certificationRoutes';
-
+import adminRoutes from './routes/adminRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -60,7 +39,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/workshops', workshopRoutes);
-app.use('/api/rewards', rewardRoutes)
+app.use('/api/rewards', rewardRoutes);
+app.use('/api/admin', adminRoutes);
 // app.use('/api/profiles', profileRoutes);
 // app.use('/api/companies', companyRoutes);
 // app.use('/api/plans', planRoutes);
