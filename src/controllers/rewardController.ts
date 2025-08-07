@@ -308,46 +308,95 @@ static async getUserRewardStatus(req: Request, res: Response) {
     }
   }
 
-  // Get user's reward history
-  static async getUserRewardHistory(req: Request, res: Response) {
-    try {
-      const { uid } = req.params;
-      const { page = 1, limit = 20 } = req.query;
+// Get user's reward history
+static async getUserRewardHistory(req: Request, res: Response) {
+  try {
+    const { uid } = req.params;
+    const { page = 1, limit = 20, status } = req.query;
 
-      const pageNum = parseInt(page as string);
-      const limitNum = parseInt(limit as string);
-      const offset = (pageNum - 1) * limitNum;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
 
-      const claimsSnapshot = await db
-        .collection('user_reward_claims')
-        .where('userId', '==', uid)
-        .orderBy('claimedAt', 'desc')
-        .limit(limitNum)
-        .offset(offset)
-        .get();
+    // Build query
+    let query: FirebaseFirestore.Query = db
+      .collection('user_reward_claims')
+      .where('userId', '==', uid);
 
-      const claims = claimsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as UserRewardClaim[];
-
-      res.status(200).json({
-        claims,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total: claims.length
-        }
-      });
-
-    } catch (error) {
-      console.error('Error getting user reward history:', error);
-      res.status(500).json({ 
-        error: 'Erro interno do servidor',
-        message: error instanceof Error ? error.message : String(error)
-      });
+    // Filter by status if provided
+    if (status) {
+      query = query.where('status', '==', status);
     }
+
+    query = query.orderBy('claimedAt', 'desc').limit(limitNum).offset(offset);
+
+    const claimsSnapshot = await query.get();
+
+    const claims = claimsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as UserRewardClaim[];
+
+    // 🆕 Enhanced: Get full reward details for each claim
+    const claimsWithRewardDetails = await Promise.all(
+      claims.map(async (claim) => {
+        try {
+          const rewardDoc = await db.collection('rewards').doc(claim.rewardId).get();
+          const rewardData = rewardDoc.exists ? rewardDoc.data() : null;
+
+          return {
+            ...claim,
+            rewardDetails: rewardData ? {
+              id: claim.rewardId,
+              title: rewardData.title,
+              description: rewardData.description,
+              type: rewardData.type,
+              category: rewardData.category,
+              imageUrl: rewardData.imageUrl,
+              details: rewardData.details
+            } : null
+          };
+        } catch (error) {
+          console.error(`Error fetching reward details for ${claim.rewardId}:`, error);
+          return {
+            ...claim,
+            rewardDetails: null
+          };
+        }
+      })
+    );
+
+    // Get total count for pagination
+    const totalSnapshot = await db
+      .collection('user_reward_claims')
+      .where('userId', '==', uid)
+      .get();
+
+    console.log(`📜 Retrieved ${claims.length} reward claims for user ${uid}`);
+
+    res.status(200).json({
+      claims: claimsWithRewardDetails,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalSnapshot.size,
+        totalPages: Math.ceil(totalSnapshot.size / limitNum),
+        hasNextPage: pageNum < Math.ceil(totalSnapshot.size / limitNum),
+        hasPrevPage: pageNum > 1
+      },
+      filters: {
+        status: status || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting user reward history:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor',
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
+}
 
   // Admin: Create new reward
   static async createReward(req: Request, res: Response) {
