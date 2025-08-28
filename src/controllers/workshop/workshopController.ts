@@ -43,21 +43,45 @@ static async createWorkshop(req: Request, res: Response) {
       });
     }
 
-    // 🔧 Combine date and time to create proper DateTime
-    const scheduledDateTime = new Date(`${workshopData.scheduledDate}T${workshopData.startTime}:00`);
+    // 🔧 Fixed: Properly handle timezone when creating DateTime
+    const timezone = workshopData.timezone || 'America/Sao_Paulo';
+    
+    // Create date string in ISO format with timezone
+    const dateTimeString = `${workshopData.scheduledDate}T${workshopData.startTime}:00`;
+    
+    // Create Date object and adjust for timezone offset
+    let scheduledDateTime = new Date(dateTimeString);
+    
+    // Get timezone offset for Brazil (UTC-3)
+    if (timezone === 'America/Sao_Paulo') {
+      // Brazil is UTC-3, so we need to add 3 hours to convert from local time to UTC
+      const timezoneOffsetHours = -3;
+      scheduledDateTime = new Date(scheduledDateTime.getTime() - (timezoneOffsetHours * 60 * 60 * 1000));
+    }
+    
+    // Get current time in the same timezone for comparison
+    const now = new Date();
+    const currentTimeInTimezone = new Date(now.getTime() + (now.getTimezoneOffset() * 60 * 1000) + (-3 * 60 * 60 * 1000)); // Brazil time
     
     console.log('🕐 Date validation debug:', {
       receivedDate: workshopData.scheduledDate,
       receivedTime: workshopData.startTime,
-      combinedDateTime: scheduledDateTime,
-      currentTime: new Date(),
-      isInFuture: scheduledDateTime > new Date()
+      timezone: timezone,
+      dateTimeString: dateTimeString,
+      scheduledDateTimeUTC: scheduledDateTime.toISOString(),
+      scheduledDateTimeLocal: scheduledDateTime.toLocaleString('pt-BR', { timeZone: timezone }),
+      currentTimeUTC: now.toISOString(),
+      currentTimeLocal: now.toLocaleString('pt-BR', { timeZone: timezone }),
+      currentTimeInTimezone: currentTimeInTimezone.toISOString(),
+      isInFuture: scheduledDateTime > now,
+      timeDifference: (scheduledDateTime.getTime() - now.getTime()) / (1000 * 60) // minutes
     });
 
     // Validate scheduled date (must be in the future)
-    if (scheduledDateTime <= new Date()) {
+    // Compare with current UTC time since scheduledDateTime is now in UTC
+    if (scheduledDateTime <= now) {
       return res.status(400).json({ 
-        error: `A data e horário do workshop devem ser no futuro. Data recebida: ${scheduledDateTime.toLocaleString('pt-BR', { timeZone: workshopData.timezone || 'America/Sao_Paulo' })}`
+        error: `A data e horário do workshop devem ser no futuro. Data recebida: ${scheduledDateTime.toLocaleString('pt-BR', { timeZone: timezone })}. Horário atual: ${now.toLocaleString('pt-BR', { timeZone: timezone })}`
       });
     }
 
@@ -65,6 +89,11 @@ static async createWorkshop(req: Request, res: Response) {
     let enrollmentDeadlineDate = null;
     if (workshopData.enrollmentDeadline) {
       enrollmentDeadlineDate = new Date(`${workshopData.enrollmentDeadline}T23:59:59`);
+      
+      // Adjust for timezone if needed
+      if (timezone === 'America/Sao_Paulo') {
+        enrollmentDeadlineDate = new Date(enrollmentDeadlineDate.getTime() - (-3 * 60 * 60 * 1000));
+      }
       
       // Enrollment deadline should be before workshop date
       if (enrollmentDeadlineDate >= scheduledDateTime) {
@@ -82,9 +111,17 @@ static async createWorkshop(req: Request, res: Response) {
       duration = Math.floor((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
     }
 
-    // Generate meeting link if needed
+    // Generate meeting link if needed (use provided link if available)
     let meetingInfo;
-    if (workshopData.meetingType && !workshopData.meetingLink) {
+    if (workshopData.meetingLink) {
+      // Use provided meeting info from frontend
+      meetingInfo = {
+        link: workshopData.meetingLink,
+        id: workshopData.meetingId || '',
+        password: workshopData.meetingPassword || ''
+      };
+    } else if (workshopData.meetingType && !workshopData.meetingLink) {
+      // Generate meeting link only if not provided
       meetingInfo = await MeetingService.generateMeetingLink(
         workshopData.meetingType,
         workshopData.title,
@@ -92,11 +129,11 @@ static async createWorkshop(req: Request, res: Response) {
         duration || 120
       );
     } else {
-      // Use provided meeting info
+      // Default empty meeting info
       meetingInfo = {
-        link: workshopData.meetingLink || '',
-        id: workshopData.meetingId || '',
-        password: workshopData.meetingPassword || ''
+        link: '',
+        id: '',
+        password: ''
       };
     }
 
@@ -113,13 +150,13 @@ static async createWorkshop(req: Request, res: Response) {
       
       // Creator info (from auth and user data, not frontend)
       creatorId: uid,
-      creatorName: userData?.name || 'Usuário',
+      creatorName: userData?.name || workshopData.creatorName || 'Usuário',
       
-      // Schedule - store as Date in database but keep string format for compatibility
-      scheduledDate: scheduledDateTime,
+      // Schedule - store as proper UTC Date in database
+      scheduledDate: scheduledDateTime, // This is now properly converted to UTC
       startTime: workshopData.startTime,
       endTime: workshopData.endTime || '',
-      timezone: workshopData.timezone || 'America/Sao_Paulo',
+      timezone: timezone,
       
       // Meeting info
       meetingType: workshopData.meetingType || 'teams',
@@ -178,13 +215,16 @@ static async createWorkshop(req: Request, res: Response) {
     console.log('✅ Workshop created successfully:', {
       id: workshopRef.id,
       title: workshop.title,
-      scheduledDateTime: workshop.scheduledDate
+      scheduledDateTimeUTC: workshop.scheduledDate.toISOString(),
+      scheduledDateTimeLocal: workshop.scheduledDate.toLocaleString('pt-BR', { timeZone: timezone })
     });
 
     res.status(201).json({
       id: workshopRef.id,
       ...workshop,
       ...additionalData,
+      // Return the scheduled date in local time for frontend
+      scheduledDateLocal: workshop.scheduledDate.toLocaleString('pt-BR', { timeZone: timezone }),
       message: 'Workshop criado com sucesso!'
     });
 
